@@ -1,0 +1,8 @@
+flask
+numpy
+opencv-python
+Pillow
+setuptools
+dlib-bin
+face_recognition
+face-recognition-models

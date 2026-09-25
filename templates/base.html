@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Face + Geo Attendance</title><link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"></head><body>
+<nav><b>Face + Geo Attendance</b><a href="/">Dashboard</a><a href="/attendance">Mark Attendance</a><a href="/timetable">Timetable</a><a href="/students">Students</a><a href="/reports">Reports</a></nav>
+<div class="demo" id="demoBanner" style="display:none">DEMO MODE – predefined location coordinates are used (face recognition is still real)</div>
+<main>{% block content %}{% endblock %}</main>
+<script>fetch('/api/config').then(r=>r.json()).then(c=>{if(c.demo_mode)document.getElementById('demoBanner').style.display='block'});
+async function api(url,method,body){
+  try{
+    const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+    const text = await r.text();
+    if (!text) return {success:false,message:'Server returned an empty response.'};
+    try{return JSON.parse(text)}catch(e){return {success:false,message:`Server error (${r.status})`};}
+  }catch(e){
+    console.error('Fetch failed:', e);
+    return {success:false,message:'Network error: check that Flask is running on http://127.0.0.1:5000 and refresh the page.'}
+  }
+}
+function fmt(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}</script>
+{% block scripts %}{% endblock %}</body></html>

@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block content %}
+<h1>Dashboard <small style="font-size:14px;color:#64748b">{{ day }}, {{ today }}</small></h1>
+<div class="grid">
+<div class="stat">Students<span>{{ total_students }}</span></div>
+<div class="stat">Present today<span>{{ present_today }}</span></div>
+<div class="stat">Absent today<span>{{ absent_today }}</span></div>
+<div class="stat">Overall attendance<span>{{ pct }}%</span></div></div>
+<div class="card"><h3>Active attendance sessions</h3>
+{% if sessions %}<table><tr><th>Subject</th><th>Faculty</th><th>Room</th><th>Time left</th><th></th></tr>
+{% for s in sessions %}<tr><td>{{ s.subject }}</td><td>{{ s.faculty }}</td><td>{{ s.room }}</td>
+<td class="cd" data-left="{{ s.remaining_seconds }}">--:--</td>
+<td><a class="btn green" href="/attendance">Mark</a> <button class="red" onclick="stopS({{ s.id }})">Stop</button></td></tr>{% endfor %}</table>
+{% else %}<p>No active session. Start one from today's timetable below.</p>{% endif %}</div>
+<div class="card"><h3>Today's timetable</h3>
+{% if timetable %}<table><tr><th>Time</th><th>Subject</th><th>Faculty</th><th>Room</th><th></th></tr>
+{% for t in timetable %}<tr><td>{{ t.start_time }} - {{ t.end_time }}</td><td>{{ t.subject }}</td><td>{{ t.faculty }}</td><td>{{ t.room }}</td>
+<td><button onclick="startS({{ t.id }})">Start 5-min attendance</button></td></tr>{% endfor %}</table>
+{% else %}<p>No classes today (weekend). In Demo Mode you can start any class from the <a href="/timetable">Timetable</a> page.</p>{% endif %}</div>
+<div class="card"><h3>Recent attendance</h3><table><tr><th>Student</th><th>Subject</th><th>Date</th><th>Time</th><th>Distance</th></tr>
+{% for r in recent %}<tr><td>{{ r.name }} ({{ r.roll_number }})</td><td>{{ r.subject }}</td><td>{{ r.date }}</td><td>{{ r.check_in_time }}</td><td>{{ r.distance|round(0)|int }} m</td></tr>{% endfor %}</table></div>
+{% endblock %}{% block scripts %}<script src="/static/js/dashboard.js"></script>{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block content %}
+<h1>Attendance Report</h1>
+<form class="card row" method="get">
+<div><label>Student</label><select name="student"><option value="">All</option>{% for s in students %}<option value="{{ s.id }}" {{ 'selected' if f.student==s.id|string }}>{{ s.name }}</option>{% endfor %}</select></div>
+<div><label>Subject</label><select name="subject"><option value="">All</option>{% for s in subjects %}<option {{ 'selected' if f.subject==s }}>{{ s }}</option>{% endfor %}</select></div>
+<div><label>Faculty</label><select name="faculty"><option value="">All</option>{% for s in faculties %}<option {{ 'selected' if f.faculty==s }}>{{ s }}</option>{% endfor %}</select></div>
+<div><label>Date</label><input type="date" name="date" value="{{ f.date }}"></div>
+<button>Filter</button><a class="btn green" href="/reports?{{ request.query_string.decode() }}{{ '&' if request.query_string }}format=csv">Export CSV</a></form>
+<div class="card"><table><tr><th>Student</th><th>Roll</th><th>Total classes</th><th>Present</th><th>Absent</th><th>Attendance %</th></tr>
+{% for r in summary %}<tr><td>{{ r.name }}</td><td>{{ r.roll }}</td><td>{{ r.total }}</td><td>{{ r.present }}</td><td>{{ r.absent }}</td>
+<td><span class="badge {{ 'ok' if r.pct>=75 else 'bad' }}">{{ r.pct }}%</span></td></tr>{% endfor %}</table></div>
+<div class="card"><h3>Records</h3><table><tr><th>Date</th><th>Student</th><th>Subject</th><th>Faculty</th><th>Time</th><th>Distance</th><th>Status</th></tr>
+{% for r in records %}<tr><td>{{ r.date }}</td><td>{{ r.name }}</td><td>{{ r.subject }}</td><td>{{ r.faculty }}</td><td>{{ r.check_in_time or '-' }}</td>
+<td>{{ (r.distance|round(0)|int ~ ' m') if r.distance is not none else '-' }}</td><td><span class="badge {{ 'ok' if r.status=='Present' else 'bad' }}">{{ r.status }}</span></td></tr>{% endfor %}</table></div>
+{% endblock %}
