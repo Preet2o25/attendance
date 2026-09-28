@@ -1,0 +1,435 @@
+{% extends "base.html" %}{% block content %}
+<div class="row" style="justify-content:space-between;align-items:center">
+  <div>
+    <h1 style="margin-bottom:4px">Student Dashboard</h1>
+    <div style="font-size:14px;color:#475569">
+      Welcome back, <b>{{ student.name }}</b> (ID: <code>{{ student.student_id }}</code> | Roll: <code>{{ student.roll_number }}</code> | {{ student.course }} Sem {{ student.semester }})
+    </div>
+  </div>
+</div>
+
+<!-- Stats Grid + Mark Attendance side by side -->
+<div class="row" style="margin-top:18px;gap:20px;align-items:flex-start;flex-wrap:wrap">
+  <!-- Stats -->
+  <div style="flex:1;min-width:280px">
+    <div class="grid" style="margin-bottom:0">
+      <div class="stat">Total Classes<span>{{ total_sessions }}</span></div>
+      <div class="stat">Classes Attended<span>{{ present_count }}</span></div>
+      <div class="stat">Classes Missed<span>{{ absent_count }}</span></div>
+      <div class="stat">
+        Attendance Rate
+        <span style="color:{% if pct>=75 %}#15803d{% elif pct>=60 %}#b45309{% else %}#b91c1c{% endif %}">
+          {{ pct }}%
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mark Attendance (Replicated identically from Faculty Attendance module) -->
+  <div class="card" style="flex:1;min-width:320px;margin-top:0">
+    <h3 style="margin-top:0">Mark Attendance</h3>
+    <p style="font-size:13px;color:#64748b;margin-bottom:12px">
+      When a faculty session is active, select it below and verify your face to mark attendance.
+    </p>
+
+    <div style="margin-bottom:10px">
+      <label style="font-size:13px;font-weight:600;color:#374151">Active Session</label>
+      <select id="sessSel" style="width:100%;margin-top:4px;padding:7px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:14px"></select>
+    </div>
+
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:12px;font-size:13px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+        <div><span style="color:#64748b">Subject:</span> <b id="cSub">-</b></div>
+        <div><span style="color:#64748b">Faculty:</span> <b id="cFac">-</b></div>
+        <div><span style="color:#64748b">Room:</span> <b id="cRoom">-</b></div>
+        <div><span style="color:#64748b">Status:</span> <span id="cStat" class="badge wait">NONE</span></div>
+        <div><span style="color:#64748b">Time left:</span> <b id="timer" class="timer" style="font-size:14px">--:--</b></div>
+      </div>
+    </div>
+
+    <div style="font-size:13px;margin-bottom:10px;padding:8px;background:#f1f5f9;border-radius:6px">
+      <span style="color:#64748b">Location:</span> <b id="lLoc">Waiting</b> | 
+      <span style="color:#64748b">Distance:</span> <b id="lDist">-</b> | 
+      <span id="lStat" class="badge wait">Waiting</span>
+    </div>
+
+    <div style="margin-bottom:10px">
+      <video id="video" autoplay playsinline muted style="width:100%;border-radius:8px;border:2px solid #e2e8f0;background:#000;max-height:200px;object-fit:cover"></video>
+      <button id="btnFace" onclick="verifyFace()" disabled
+        style="margin-top:8px;width:100%;padding:10px;background:#1e3a8a;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer">
+        Capture / Verify Face
+      </button>
+      <div style="font-size:12px;margin-top:6px;color:#475569">
+        Face Status: <span id="fStat" class="badge wait">Waiting</span>
+      </div>
+    </div>
+
+    <div style="font-size:13px;margin-bottom:8px">
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div>Location Verified: <b id="rLoc">-</b></div>
+        <div>Face Verified: <b id="rFace">-</b></div>
+        <div>Attendance: <b id="rAtt">-</b></div>
+      </div>
+    </div>
+
+    <div id="msg" class="msg" style="display:none;margin-top:6px"></div>
+  </div>
+</div>
+
+<!-- Today's Timetable / Upcoming Classes -->
+<div class="card" style="margin-top:20px">
+  <h3>Today's Schedule ({{ day }}, {{ today }})</h3>
+  {% if today_timetable %}
+    <table>
+      <thead>
+        <tr>
+          <th>Time Slot</th>
+          <th>Subject</th>
+          <th>Professor / Faculty</th>
+          <th>Room</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in today_timetable %}
+          <tr>
+            <td><b>{{ t.start_time }} - {{ t.end_time }}</b></td>
+            <td>{{ t.subject }}</td>
+            <td><b>{{ t.faculty }}</b></td>
+            <td><span class="badge wait">{{ t.room }}</span></td>
+            <td>
+              <span class="badge {{ t.status_class }}">{{ t.status_label }}</span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p style="color:#64748b;margin:6px 0">No classes scheduled for today.</p>
+  {% endif %}
+</div>
+
+<!-- Charts & Visualizations -->
+<div class="charts-wrapper">
+  <div class="chart-card">
+    <h4>Overall Attendance Ratio</h4>
+    <div style="width:240px;height:240px;position:relative">
+      <canvas id="ratioChart"></canvas>
+    </div>
+  </div>
+  <div class="chart-card">
+    <h4>Subject-wise Attendance %</h4>
+    <div style="width:100%;max-width:440px;height:240px;position:relative">
+      <canvas id="subjectChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Interactive Attendance Calendar -->
+<div class="card">
+  <h3>Attendance Calendar and Record</h3>
+  <p style="font-size:13px;color:#64748b;margin-top:2px">
+    Click on any highlighted date in the calendar below to view detailed attendance logs for that day.
+  </p>
+  
+  <div class="calendar-box">
+    <div class="calendar-controls">
+      <button onclick="changeMonth(-1)">Prev Month</button>
+      <h4 id="calMonthYear">September 2026</h4>
+      <button onclick="changeMonth(1)">Next Month</button>
+    </div>
+
+    <div class="calendar-grid" id="calGrid">
+      <!-- Generated dynamically by JS -->
+    </div>
+    
+    <div class="row" style="margin-top:14px;gap:16px;font-size:12px;color:#475569">
+      <div><span style="display:inline-block;width:12px;height:12px;background:#dcfce7;border:1px solid #86efac;border-radius:3px"></span> Present</div>
+      <div><span style="display:inline-block;width:12px;height:12px;background:#fef3c7;border:1px solid #fde047;border-radius:3px"></span> Partial</div>
+      <div><span style="display:inline-block;width:12px;height:12px;background:#fee2e2;border:1px solid #fca5a5;border-radius:3px"></span> Absent</div>
+    </div>
+  </div>
+</div>
+
+<!-- Subject-wise Breakdown Table -->
+<div class="card">
+  <h3>Subject-wise Attendance Breakdown</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Subject Name</th>
+        <th>Total Classes</th>
+        <th>Attended</th>
+        <th>Missed</th>
+        <th>Percentage</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in subject_summary %}
+        <tr>
+          <td><b>{{ s.subject }}</b></td>
+          <td>{{ s.total }}</td>
+          <td><b style="color:#166534">{{ s.present }}</b></td>
+          <td><b style="color:#991b1b">{{ s.absent }}</b></td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="flex:1;background:#e2e8f0;height:8px;border-radius:4px;overflow:hidden">
+                <div style="width:{{ s.pct }}%;background:{% if s.pct>=75 %}#166534{% elif s.pct>=60 %}#d97706{% else %}#dc2626{% endif %};height:100%"></div>
+              </div>
+              <span style="font-weight:700;font-size:13px">{{ s.pct }}%</span>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Recent Attendance Records Log -->
+<div class="card">
+  <h3>Recent Attendance Records</h3>
+  {% if recent_records %}
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Subject</th>
+          <th>Professor</th>
+          <th>Time</th>
+          <th>Distance</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in recent_records %}
+          <tr>
+            <td><b>{{ r.date }}</b></td>
+            <td>{{ r.subject }}</td>
+            <td>{{ r.faculty }}</td>
+            <td>{{ r.check_in_time or '-' }}</td>
+            <td>{{ (r.distance|round(0)|int ~ ' m') if r.distance is not none else '-' }}</td>
+            <td>
+              <span class="badge {% if r.status=='Present' %}ok{% else %}bad{% endif %}">
+                {{ r.status }}
+              </span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p style="color:#64748b">No recent attendance records found.</p>
+  {% endif %}
+</div>
+
+<!-- Date Detail Modal -->
+<div class="modal-overlay" id="dateModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="modalTitle">Attendance Details</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div id="modalBody">
+      <!-- Populated dynamically on date click -->
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Shared Attendance & Camera Modules (replicated identically from Faculty Attendance page) -->
+<script src="{{ url_for('static', filename='js/geolocation.js') }}"></script>
+<script src="{{ url_for('static', filename='js/camera.js') }}"></script>
+<script src="{{ url_for('static', filename='js/attendance.js') }}"></script>
+
+<script>
+  // Raw Data from Flask
+  const calendarData = {{ calendar_map | tojson }};
+  const subjectSummary = {{ subject_summary | tojson }};
+  const presentCount = {{ present_count }};
+  const absentCount = {{ absent_count }};
+
+  // ---------------------------------------------------- Render Charts
+  document.addEventListener('DOMContentLoaded', () => {
+    // 1. Doughnut Chart for Ratio
+    const ctxRatio = document.getElementById('ratioChart');
+    if (ctxRatio && window.Chart) {
+      new Chart(ctxRatio, {
+        type: 'doughnut',
+        data: {
+          labels: ['Present', 'Absent'],
+          datasets: [{
+            data: [presentCount, absentCount],
+            backgroundColor: ['#166534', '#dc2626'],
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    }
+
+    // 2. Bar Chart for Subject-wise Percentage
+    const ctxSubject = document.getElementById('subjectChart');
+    if (ctxSubject && window.Chart) {
+      const labels = subjectSummary.map(s => s.subject);
+      const percentages = subjectSummary.map(s => s.pct);
+      const barColors = percentages.map(p => p >= 75 ? '#166534' : (p >= 60 ? '#d97706' : '#dc2626'));
+
+      new Chart(ctxSubject, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Attendance %',
+            data: percentages,
+            backgroundColor: barColors,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true, max: 100, title: { display: true, text: '%' } }
+          },
+          plugins: { legend: { display: false } }
+        }
+      });
+    }
+
+    renderCalendar(currentYear, currentMonth);
+  });
+
+  // ---------------------------------------------------- Interactive Calendar Logic
+  let currentYear = 2026;
+  let currentMonth = 8; // 0-indexed: 8 = September
+
+  // Auto-detect latest month from data if available
+  const dates = Object.keys(calendarData).sort();
+  if (dates.length > 0) {
+    const lastDate = new Date(dates[dates.length - 1]);
+    currentYear = lastDate.getFullYear();
+    currentMonth = lastDate.getMonth();
+  }
+
+  function changeMonth(delta) {
+    currentMonth += delta;
+    if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+    else if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+    renderCalendar(currentYear, currentMonth);
+  }
+
+  function renderCalendar(year, month) {
+    const monthNames = ["January", "February", "March", "April", "May", "June",
+                        "July", "August", "September", "October", "November", "December"];
+    document.getElementById('calMonthYear').textContent = `${monthNames[month]} ${year}`;
+
+    const grid = document.getElementById('calGrid');
+    grid.innerHTML = '';
+
+    // Day Headers
+    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    daysOfWeek.forEach(d => {
+      const head = document.createElement('div');
+      head.className = 'calendar-day-head';
+      head.textContent = d;
+      grid.appendChild(head);
+    });
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // Empty lead cells
+    for (let i = 0; i < firstDay; i++) {
+      const empty = document.createElement('div');
+      empty.className = 'calendar-day empty';
+      grid.appendChild(empty);
+    }
+
+    // Days of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayEl = document.createElement('div');
+      dayEl.className = 'calendar-day';
+      
+      const mm = String(month + 1).padStart(2, '0');
+      const dd = String(day).padStart(2, '0');
+      const dateStr = `${year}-${mm}-${dd}`;
+
+      dayEl.innerHTML = `<span class="day-num">${day}</span>`;
+
+      if (calendarData[dateStr]) {
+        const records = calendarData[dateStr];
+        const presents = records.filter(r => r.status === 'Present').length;
+        const total = records.length;
+
+        if (presents === total && total > 0) {
+          dayEl.classList.add('cal-present');
+        } else if (presents === 0) {
+          dayEl.classList.add('cal-absent');
+        } else {
+          dayEl.classList.add('cal-partial');
+        }
+
+        const dot = document.createElement('div');
+        dot.className = 'day-dot';
+        dayEl.appendChild(dot);
+
+        dayEl.onclick = () => showDateDetails(dateStr, records);
+      } else {
+        dayEl.style.color = '#94a3b8';
+      }
+
+      grid.appendChild(dayEl);
+    }
+  }
+
+  function showDateDetails(dateStr, records) {
+    document.getElementById('modalTitle').textContent = `Attendance on ${dateStr}`;
+    const body = document.getElementById('modalBody');
+    body.innerHTML = '';
+
+    const list = document.createElement('div');
+    records.forEach(r => {
+      const item = document.createElement('div');
+      item.style.padding = '10px 0';
+      item.style.borderBottom = '1px solid #e2e8f0';
+      item.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <b style="color:#1e3a8a">${r.subject}</b><br>
+            <span style="font-size:12px;color:#64748b">Faculty: ${r.faculty}</span>
+          </div>
+          <div>
+            <span class="badge ${r.status === 'Present' ? 'ok' : 'bad'}">${r.status}</span>
+          </div>
+        </div>
+        ${r.status === 'Present' ? `<div style="font-size:12px;color:#475569;margin-top:4px">Check-in: ${r.time} (${r.distance})</div>` : ''}
+      `;
+      list.appendChild(item);
+    });
+
+    body.appendChild(list);
+    document.getElementById('dateModal').style.display = 'flex';
+  }
+
+  function closeModal() {
+    document.getElementById('dateModal').style.display = 'none';
+  }
+
+  // Close modal on outside click
+  window.onclick = function(event) {
+    const modal = document.getElementById('dateModal');
+    if (event.target === modal) {
+      closeModal();
+    }
+  };
+</script>
+{% endblock %}

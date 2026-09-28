@@ -2,7 +2,7 @@ flask
 numpy
 opencv-python
 Pillow
-setuptools
+setuptools<70.0.0
 dlib-bin
 face_recognition
 face-recognition-models

@@ -7,7 +7,10 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS students(
   id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
-  roll_number TEXT UNIQUE NOT NULL, email TEXT, course TEXT, semester INTEGER, face_encoding TEXT);
+  roll_number TEXT UNIQUE NOT NULL, email TEXT, course TEXT, semester INTEGER, face_encoding TEXT, password TEXT);
+CREATE TABLE IF NOT EXISTS faculty(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, faculty_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+  email TEXT UNIQUE, password TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS subjects(
   id INTEGER PRIMARY KEY AUTOINCREMENT, subject_name TEXT UNIQUE NOT NULL, faculty TEXT, room TEXT);
 CREATE TABLE IF NOT EXISTS timetable(
@@ -26,11 +29,14 @@ CREATE TABLE IF NOT EXISTS attendance(
   UNIQUE(student_id, timetable_id, date));
 """
 
-STUDENTS = [("STU001", "Aarav Patel", "CSE001", "aarav@example.com"),
-            ("STU002", "Riya Shah", "CSE002", "riya@example.com"),
-            ("STU003", "Dev Mehta", "CSE003", "dev@example.com"),
-            ("STU004", "Anaya Patel", "CSE004", "anaya@example.com"),
-            ("STU005", "Krish Shah", "CSE005", "krish@example.com")]
+STUDENTS = [("STU001", "Preet", "CSE001", "preet@example.com"),
+            ("STU002", "Chitransh", "CSE002", "chitransh@example.com"),
+            ("STU003", "Mitesh", "CSE003", "mitesh@example.com")]
+
+FACULTIES = [("FAC001", "Dr. Mehta", "mehta@example.com", "mehta@2026"),
+             ("FAC002", "Prof. Shah", "shah@example.com", "shah@2026"),
+             ("FAC003", "Prof. Patel", "patel@example.com", "patel@2026")]
+
 M, D, S, P, A = "Dr. Mehta", "Prof. Shah", None, "Prof. Patel", None
 ML, DBMS, CN, AI, WD = "Machine Learning", "Database Management System", "Computer Networks", "Artificial Intelligence", "Web Development"
 FAC = {ML: "Dr. Mehta", AI: "Dr. Mehta", DBMS: "Prof. Patel", CN: "Prof. Patel", WD: "Prof. Shah"}
@@ -40,11 +46,42 @@ TT = {"Monday": [ML, DBMS, CN], "Tuesday": [AI, WD, ML], "Wednesday": [DBMS, AI,
 SLOTS = [("09:00", "10:00"), ("10:00", "11:00"), ("11:00", "12:00")]
 
 
+def update_settings(db):
+    for k, v in [("classroom_lat", config.CLASSROOM_LATITUDE), ("classroom_lon", config.CLASSROOM_LONGITUDE),
+                 ("radius", config.ALLOWED_RADIUS_METERS)]:
+        db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (k, str(v)))
+
+
+def migrate(db):
+    cols = [r[1] for r in db.execute("PRAGMA table_info(students)").fetchall()]
+    if "password" not in cols:
+        db.execute("ALTER TABLE students ADD COLUMN password TEXT")
+    
+    db.execute("""CREATE TABLE IF NOT EXISTS faculty(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, faculty_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+      email TEXT UNIQUE, password TEXT NOT NULL)""")
+    
+    # Populate default passwords for existing students
+    students = db.execute("SELECT id, name FROM students WHERE password IS NULL OR password=''").fetchall()
+    for st in students:
+        first = st["name"].strip().split()[0].lower()
+        db.execute("UPDATE students SET password=? WHERE id=?", (f"{first}@2026", st["id"]))
+    
+    # Populate faculty table if empty
+    if db.execute("SELECT COUNT(*) FROM faculty").fetchone()[0] == 0:
+        for fid, name, email, pwd in FACULTIES:
+            db.execute("INSERT OR IGNORE INTO faculty(faculty_id,name,email,password) VALUES(?,?,?,?)",
+                       (fid, name, email, pwd))
+    db.commit()
+
+
 def init():
     os.makedirs(os.path.dirname(config.DB_PATH), exist_ok=True)
     os.makedirs(config.DATASET_DIR, exist_ok=True)
     db = connect()
     db.executescript(SCHEMA)
+    update_settings(db)
+    migrate(db)
     if db.execute("SELECT COUNT(*) FROM students").fetchone()[0] == 0:
         seed(db)
     db.commit()
@@ -52,12 +89,13 @@ def init():
 
 
 def seed(db):
-    for k, v in [("classroom_lat", config.CLASSROOM_LATITUDE), ("classroom_lon", config.CLASSROOM_LONGITUDE),
-                 ("radius", config.ALLOWED_RADIUS_METERS)]:
-        db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (k, str(v)))
     for sid, name, roll, mail in STUDENTS:
-        db.execute("INSERT INTO students(student_id,name,roll_number,email,course,semester) VALUES(?,?,?,?,?,?)",
-                   (sid, name, roll, mail, "CSE", 7))
+        first = name.strip().split()[0].lower()
+        db.execute("INSERT INTO students(student_id,name,roll_number,email,course,semester,password) VALUES(?,?,?,?,?,?,?)",
+                   (sid, name, roll, mail, "CSE", 7, f"{first}@2026"))
+    for fid, name, email, pwd in FACULTIES:
+        db.execute("INSERT OR IGNORE INTO faculty(faculty_id,name,email,password) VALUES(?,?,?,?)",
+                   (fid, name, email, pwd))
     for name, fac in FAC.items():
         db.execute("INSERT INTO subjects(subject_name,faculty,room) VALUES(?,?,?)", (name, fac, "A101"))
     sub = {r["subject_name"]: r["id"] for r in db.execute("SELECT * FROM subjects")}

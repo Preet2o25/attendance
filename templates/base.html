@@ -1,9 +1,25 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Face + Geo Attendance</title><link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"></head><body>
-<nav><b>Face + Geo Attendance</b><a href="/">Dashboard</a><a href="/attendance">Mark Attendance</a><a href="/timetable">Timetable</a><a href="/students">Students</a><a href="/reports">Reports</a></nav>
-<div class="demo" id="demoBanner" style="display:none">DEMO MODE – predefined location coordinates are used (face recognition is still real)</div>
+<title>Smart Attendance Portal</title><link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"></head><body>
+<nav>
+  <b>Smart Attendance Portal</b>
+  <a href="/">Dashboard</a>
+  {% if session.get('user') and session['user'].role == 'faculty' %}
+    <a href="/attendance">Mark Attendance</a>
+    <a href="/timetable">Timetable</a>
+    <a href="/students">Students</a>
+    <a href="/reports">Reports</a>
+  {% elif session.get('user') and session['user'].role == 'student' %}
+    <a href="/timetable">Timetable</a>
+  {% endif %}
+  {% if session.get('user') %}
+    <span style="margin-left:auto;font-size:13px;background:rgba(255,255,255,0.15);padding:4px 10px;border-radius:14px;color:#fff">
+      {{ session['user'].name }} ({{ session['user'].role|capitalize }})
+    </span>
+    <a href="/logout" style="background:#b91c1c;border-radius:4px;padding:6px 12px;margin-left:6px">Logout</a>
+  {% endif %}
+</nav>
 <main>{% block content %}{% endblock %}</main>
-<script>fetch('/api/config').then(r=>r.json()).then(c=>{if(c.demo_mode)document.getElementById('demoBanner').style.display='block'});
+<script>
 async function api(url,method,body){
   try{
     const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});

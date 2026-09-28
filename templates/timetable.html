@@ -1,15 +1,52 @@
 {% extends "base.html" %}{% block content %}
-<h1>Timetable</h1>
+<h1>Weekly Timetable Schedule</h1>
+
+{% if session.get('user') and session['user'].role == 'faculty' %}
 <div class="card"><h3 id="formTitle">Add / edit class</h3><div class="row">
 <div><label>Day</label><select id="day">{% for d in days %}<option>{{ d }}</option>{% endfor %}</select></div>
 <div><label>Start</label><input id="st" type="time" value="09:00"></div><div><label>End</label><input id="en" type="time" value="10:00"></div>
 <div><label>Subject</label><input id="sub"></div><div><label>Faculty</label><input id="fac"></div><div><label>Room</label><input id="room" value="A101"></div>
 <button onclick="save()">Save</button><button class="red" onclick="reset()">Clear</button></div></div>
-<div class="card"><table><tr><th>Day</th><th>Time</th><th>Subject</th><th>Faculty</th><th>Room</th><th></th></tr>
-{% for r in rows %}<tr><td>{{ r.day }}</td><td>{{ r.start_time }} - {{ r.end_time }}</td><td>{{ r.subject }}</td><td>{{ r.faculty }}</td><td>{{ r.room }}</td>
-<td><button onclick='edit({{ r.id }},{{ [r.day,r.start_time,r.end_time,r.subject,r.faculty,r.room]|tojson }})'>Edit</button>
-<button class="green" onclick="startS({{ r.id }})">Start session</button> <button class="red" onclick="del({{ r.id }})">Delete</button></td></tr>{% endfor %}</table></div>
-{% endblock %}{% block scripts %}<script src="/static/js/dashboard.js"></script><script>
+{% endif %}
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Day</th>
+        <th>Time Slot</th>
+        <th>Subject</th>
+        <th>Professor / Faculty</th>
+        <th>Room</th>
+        {% if session.get('user') and session['user'].role == 'faculty' %}<th>Actions</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td><b>{{ r.day }}</b></td>
+          <td>{{ r.start_time }} - {{ r.end_time }}</td>
+          <td><b>{{ r.subject }}</b></td>
+          <td>{{ r.faculty }}</td>
+          <td><span class="badge wait">{{ r.room }}</span></td>
+          {% if session.get('user') and session['user'].role == 'faculty' %}
+          <td>
+            <button onclick='edit({{ r.id }},{{ [r.day,r.start_time,r.end_time,r.subject,r.faculty,r.room]|tojson }})'>Edit</button>
+            <button class="green" onclick="startS({{ r.id }})">Start session</button>
+            <button class="red" onclick="del({{ r.id }})">Delete</button>
+          </td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if session.get('user') and session['user'].role == 'faculty' %}
+<script src="/static/js/dashboard.js"></script>
+<script>
 let editId=null;
 function edit(id,v){editId=id;['day','st','en','sub','fac','room'].forEach((k,i)=>document.getElementById(k).value=v[i]);document.getElementById('formTitle').textContent='Editing entry #'+id;scrollTo(0,0)}
 function reset(){editId=null;document.getElementById('formTitle').textContent='Add / edit class'}
@@ -17,4 +54,6 @@ async function save(){const g=k=>document.getElementById(k).value;
  const r=await api(editId?'/api/timetable/'+editId:'/api/timetable',editId?'PUT':'POST',{day:g('day'),start_time:g('st'),end_time:g('en'),subject:g('sub'),faculty:g('fac'),room:g('room')});
  alert(r.message);if(r.success)location.reload()}
 async function del(id){if(confirm('Delete this entry?')){await api('/api/timetable/'+id,'DELETE');location.reload()}}
-</script>{% endblock %}
+</script>
+{% endif %}
+{% endblock %}

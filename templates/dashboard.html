@@ -15,7 +15,7 @@
 {% if timetable %}<table><tr><th>Time</th><th>Subject</th><th>Faculty</th><th>Room</th><th></th></tr>
 {% for t in timetable %}<tr><td>{{ t.start_time }} - {{ t.end_time }}</td><td>{{ t.subject }}</td><td>{{ t.faculty }}</td><td>{{ t.room }}</td>
 <td><button onclick="startS({{ t.id }})">Start 5-min attendance</button></td></tr>{% endfor %}</table>
-{% else %}<p>No classes today (weekend). In Demo Mode you can start any class from the <a href="/timetable">Timetable</a> page.</p>{% endif %}</div>
-<div class="card"><h3>Recent attendance</h3><table><tr><th>Student</th><th>Subject</th><th>Date</th><th>Time</th><th>Distance</th></tr>
-{% for r in recent %}<tr><td>{{ r.name }} ({{ r.roll_number }})</td><td>{{ r.subject }}</td><td>{{ r.date }}</td><td>{{ r.check_in_time }}</td><td>{{ r.distance|round(0)|int }} m</td></tr>{% endfor %}</table></div>
+{% else %}<p>No classes scheduled for today. You can view and start class sessions from the <a href="/timetable">Timetable</a> page.</p>{% endif %}</div>
+<div class="card"><h3>Recent attendance</h3><table><tr><th>Student</th><th>Subject</th><th>Date</th><th>Time</th><th>Status</th><th>Distance</th></tr>
+{% for r in recent %}<tr><td>{{ r.name }} ({{ r.roll_number }})</td><td>{{ r.subject }}</td><td>{{ r.date }}</td><td>{{ r.check_in_time or '-' }}</td><td><span class="badge {% if r.status=='Present' %}ok{% else %}bad{% endif %}">{{ r.status }}</span></td><td>{% if r.distance is not none %}{{ r.distance|round(0)|int }} m{% else %}-{% endif %}</td></tr>{% endfor %}</table></div>
 {% endblock %}{% block scripts %}<script src="/static/js/dashboard.js"></script>{% endblock %}

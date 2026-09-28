@@ -2,7 +2,7 @@ import csv, io, json, os, re, sqlite3
 from datetime import datetime, timedelta
 import cv2
 import numpy as np
-from flask import Flask, jsonify, request, render_template, Response
+from flask import Flask, jsonify, request, render_template, Response, session, redirect, url_for
 
 import config, init_db
 from db import get_db, close_db, get_setting
@@ -11,7 +11,9 @@ import face_utils
 from face_utils import FaceError
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "face_geo_attendance_secret_2026")
 app.teardown_appcontext(close_db)
+
 FMT = "%Y-%m-%d %H:%M:%S"
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 SESSION_SQL = """SELECT s.id, s.timetable_id, s.date, s.start_time, s.end_time, s.status,
@@ -21,6 +23,29 @@ SESSION_SQL = """SELECT s.id, s.timetable_id, s.date, s.start_time, s.end_time, 
 
 def err(msg, status=400, **extra):
     return jsonify(success=False, message=msg, **extra), status
+
+
+EXEMPT_ENDPOINTS = {"login_page", "api_login", "static"}
+
+@app.before_request
+def require_login():
+    if request.endpoint in EXEMPT_ENDPOINTS or (request.endpoint and request.endpoint.startswith("static")):
+        return
+    user = session.get("user")
+    if not user:
+        if request.path.startswith("/api/"):
+            return err("Unauthorized. Please log in.", 401)
+        return redirect("/login")
+    
+    # Role-based restriction: students cannot access faculty-only management pages/APIs
+    faculty_only_paths = ["/attendance", "/students", "/reports"]
+    faculty_only_api_prefixes = ["/api/timetable", "/api/students", "/api/sessions/start", "/api/sessions/stop"]
+    
+    if user.get("role") == "student":
+        if any(request.path == p or request.path.startswith(p + "/") for p in faculty_only_paths):
+            return redirect("/")
+        if any(request.path.startswith(p) for p in faculty_only_api_prefixes):
+            return err("Access denied. Faculty permission required.", 403)
 
 
 # ------------------------------------------------------------ session helpers
@@ -53,21 +78,197 @@ def active_sessions(db):
     return [session_dict(r) for r in db.execute(SESSION_SQL + "WHERE s.status='ACTIVE' ORDER BY s.start_time")]
 
 
+# ------------------------------------------------------------ authentication
+@app.route("/login", methods=["GET"])
+def login_page():
+    if session.get("user"):
+        return redirect("/attendance" if session["user"].get("role") == "student" else "/")
+    return render_template("login.html")
+
+
+@app.post("/api/login")
+def api_login():
+    d = request.get_json(silent=True) or {}
+    role = str(d.get("role", "")).strip().lower()
+    username = str(d.get("username", "")).strip()
+    password = str(d.get("password", "")).strip()
+
+    if not role or not username or not password:
+        return err("Role, username/ID, and password are required.")
+
+    db = get_db()
+    if role == "student":
+        st = db.execute(
+            """SELECT * FROM students WHERE
+               LOWER(student_id)=LOWER(?) OR LOWER(roll_number)=LOWER(?)
+               OR LOWER(email)=LOWER(?) OR LOWER(name)=LOWER(?)""",
+            (username, username, username, username)
+        ).fetchone()
+
+        if not st:
+            return err("Student account not found.", 404)
+
+        first_name = st["name"].strip().split()[0].lower()
+        expected_pwd = st["password"] or f"{first_name}@2026"
+        if password.lower() != expected_pwd.lower():
+            return err("Invalid password.", 401)
+
+        session["user"] = {
+            "id": st["id"],
+            "code": st["student_id"],
+            "name": st["name"],
+            "roll": st["roll_number"],
+            "role": "student"
+        }
+        return jsonify(success=True, message=f"Welcome, {st['name']}!", redirect="/")
+
+    elif role == "faculty":
+        fac = db.execute(
+            """SELECT * FROM faculty WHERE
+               LOWER(faculty_id)=LOWER(?) OR LOWER(email)=LOWER(?) OR LOWER(name)=LOWER(?)""",
+            (username, username, username)
+        ).fetchone()
+
+        if not fac:
+            return err("Faculty account not found.", 404)
+
+        first_name = fac["name"].strip().split()[-1].lower()
+        expected_pwd = fac["password"] or f"{first_name}@2026"
+        if password.lower() != expected_pwd.lower():
+            return err("Invalid password.", 401)
+
+        session["user"] = {
+            "id": fac["id"],
+            "code": fac["faculty_id"],
+            "name": fac["name"],
+            "role": "faculty"
+        }
+        return jsonify(success=True, message=f"Welcome, {fac['name']}!", redirect="/")
+
+    else:
+        return err("Invalid login role specified.")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+
 # ------------------------------------------------------------ pages
 @app.route("/")
 def dashboard():
     db = get_db()
     today = datetime.now().strftime("%Y-%m-%d")
     day = datetime.now().strftime("%A")
-    sessions = active_sessions(db)
+    user = session.get("user")
+
+    if user and user.get("role") == "student":
+        student_id = user["id"]
+        student = db.execute("SELECT * FROM students WHERE id=?", (student_id,)).fetchone()
+
+        # Today's timetable with active session & attendance status for this student
+        tt_rows = db.execute("""SELECT t.*, sub.subject_name AS subject FROM timetable t
+                                JOIN subjects sub ON sub.id=t.subject_id
+                                WHERE day=? ORDER BY start_time""", (day,)).fetchall()
+
+        active_sess = active_sessions(db)
+        active_tt_ids = {s["timetable_id"]: s for s in active_sess}
+
+        attended_tt_ids = set()
+        for r in db.execute("SELECT timetable_id FROM attendance WHERE student_id=? AND date=? AND status='Present'",
+                            (student_id, today)).fetchall():
+            attended_tt_ids.add(r["timetable_id"])
+
+        today_timetable = []
+        for t in tt_rows:
+            d = dict(t)
+            tid = t["id"]
+            if tid in attended_tt_ids:
+                d["status_label"] = "Present"
+                d["status_class"] = "ok"
+                d["can_mark"] = False
+            elif tid in active_tt_ids:
+                d["status_label"] = "Session Active"
+                d["status_class"] = "wait"
+                d["can_mark"] = True
+                d["session_id"] = active_tt_ids[tid]["id"]
+            else:
+                d["status_label"] = "Scheduled"
+                d["status_class"] = "wait"
+                d["can_mark"] = False
+            today_timetable.append(d)
+
+        # Personal attendance stats
+        total_sessions = db.execute("SELECT COUNT(*) FROM attendance WHERE student_id=?", (student_id,)).fetchone()[0]
+        present_count = db.execute("SELECT COUNT(*) FROM attendance WHERE student_id=? AND status='Present'", (student_id,)).fetchone()[0]
+        absent_count = total_sessions - present_count
+        pct = round(100 * present_count / total_sessions, 1) if total_sessions else 0
+
+        # Subject-wise attendance summary
+        sub_stats = db.execute("""
+            SELECT subject,
+                   COUNT(*) as total,
+                   SUM(CASE WHEN status='Present' THEN 1 ELSE 0 END) as present,
+                   SUM(CASE WHEN status='Absent' THEN 1 ELSE 0 END) as absent
+            FROM attendance
+            WHERE student_id=?
+            GROUP BY subject
+            ORDER BY subject
+        """, (student_id,)).fetchall()
+
+        subject_summary = []
+        for s in sub_stats:
+            spct = round(100 * s["present"] / s["total"], 1) if s["total"] else 0
+            subject_summary.append({
+                "subject": s["subject"],
+                "total": s["total"],
+                "present": s["present"],
+                "absent": s["absent"],
+                "pct": spct
+            })
+
+        # Calendar map: { 'YYYY-MM-DD': [ {subject, faculty, status, time, distance}, ... ] }
+        att_records = db.execute("""
+            SELECT date, subject, faculty, status, check_in_time, distance
+            FROM attendance
+            WHERE student_id=?
+            ORDER BY date DESC, check_in_time DESC
+        """, (student_id,)).fetchall()
+
+        calendar_map = {}
+        for r in att_records:
+            d = r["date"]
+            if d not in calendar_map:
+                calendar_map[d] = []
+            calendar_map[d].append({
+                "subject": r["subject"],
+                "faculty": r["faculty"],
+                "status": r["status"],
+                "time": r["check_in_time"] or "-",
+                "distance": f"{round(r['distance'], 0)} m" if r["distance"] is not None else "-"
+            })
+
+        return render_template("dashboard_student.html",
+                               day=day, today=today, student=student,
+                               today_timetable=today_timetable,
+                               total_sessions=total_sessions, present_count=present_count,
+                               absent_count=absent_count, pct=pct,
+                               subject_summary=subject_summary,
+                               calendar_map=calendar_map,
+                               recent_records=att_records[:10])
+
+    # Faculty Dashboard (Admin View) - Filtered to assigned subjects for privacy
+    faculty_name = user["name"]
+    sessions = [s for s in active_sessions(db) if s["faculty"] == faculty_name]
     timetable = db.execute("""SELECT t.*, sub.subject_name AS subject FROM timetable t JOIN subjects sub ON sub.id=t.subject_id
-                              WHERE day=? ORDER BY start_time""", (day,)).fetchall()
+                              WHERE day=? AND t.faculty=? ORDER BY start_time""", (day, faculty_name)).fetchall()
     total_students = db.execute("SELECT COUNT(*) FROM students").fetchone()[0]
-    present_today = db.execute("SELECT COUNT(DISTINCT student_id) FROM attendance WHERE date=? AND status='Present'", (today,)).fetchone()[0]
-    overall = db.execute("SELECT SUM(status='Present'), COUNT(*) FROM attendance").fetchone()
-    pct = round(100 * (overall[0] or 0) / overall[1], 1) if overall[1] else 0
+    present_today = db.execute("SELECT COUNT(DISTINCT student_id) FROM attendance WHERE date=? AND status='Present' AND faculty=?", (today, faculty_name)).fetchone()[0]
+    overall = db.execute("SELECT SUM(status='Present'), COUNT(*) FROM attendance WHERE faculty=?", (faculty_name,)).fetchone()
+    pct = round(100 * (overall[0] or 0) / overall[1], 1) if (overall and overall[1]) else 0
     recent = db.execute("""SELECT a.*, st.name, st.roll_number FROM attendance a JOIN students st ON st.id=a.student_id
-                           WHERE a.status='Present' ORDER BY a.date DESC, a.check_in_time DESC LIMIT 8""").fetchall()
+                           WHERE a.faculty=? ORDER BY a.date DESC, a.id DESC LIMIT 10""", (faculty_name,)).fetchall()
     return render_template("dashboard.html", day=day, today=today, timetable=timetable, sessions=sessions,
                            total_students=total_students, present_today=present_today,
                            absent_today=total_students - present_today, pct=pct, recent=recent)
@@ -81,7 +282,11 @@ def attendance_page():
 @app.route("/timetable")
 def timetable_page():
     db = get_db()
-    rows = db.execute("""SELECT t.*, sub.subject_name AS subject FROM timetable t JOIN subjects sub ON sub.id=t.subject_id""").fetchall()
+    user = session.get("user")
+    if user and user.get("role") == "faculty":
+        rows = db.execute("""SELECT t.*, sub.subject_name AS subject FROM timetable t JOIN subjects sub ON sub.id=t.subject_id WHERE t.faculty=?""", (user["name"],)).fetchall()
+    else:
+        rows = db.execute("""SELECT t.*, sub.subject_name AS subject FROM timetable t JOIN subjects sub ON sub.id=t.subject_id""").fetchall()
     rows = sorted(rows, key=lambda r: (DAYS.index(r["day"]), r["start_time"]))
     return render_template("timetable.html", rows=rows, days=DAYS)
 
@@ -96,7 +301,13 @@ def students_page():
 def reports_page():
     db = get_db()
     close_expired(db)
+    user = session.get("user")
     f = {k: request.args.get(k, "").strip() for k in ("student", "subject", "date", "faculty")}
+    
+    # Privacy Policy: Faculty members can ONLY view attendance reports for their own subjects
+    if user and user.get("role") == "faculty":
+        f["faculty"] = user["name"]
+        
     where, params = ["s.status='CLOSED'"], []
     if f["subject"]: where.append("sub.subject_name=?"); params.append(f["subject"])
     if f["date"]: where.append("s.date=?"); params.append(f["date"])
@@ -126,8 +337,13 @@ def reports_page():
         w.writerow(["Student", "Roll", "Total", "Present", "Absent", "Attendance %"])
         for r in summary: w.writerow([r["name"], r["roll"], r["total"], r["present"], r["absent"], r["pct"]])
         return Response(out.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=attendance_report.csv"})
-    subjects = [r[0] for r in db.execute("SELECT subject_name FROM subjects ORDER BY 1")]
-    faculties = [r[0] for r in db.execute("SELECT DISTINCT faculty FROM subjects ORDER BY 1")]
+        
+    if user and user.get("role") == "faculty":
+        subjects = [r[0] for r in db.execute("SELECT DISTINCT sub.subject_name FROM timetable t JOIN subjects sub ON sub.id=t.subject_id WHERE t.faculty=? ORDER BY 1", (user["name"],))]
+        faculties = [user["name"]]
+    else:
+        subjects = [r[0] for r in db.execute("SELECT subject_name FROM subjects ORDER BY 1")]
+        faculties = [r[0] for r in db.execute("SELECT DISTINCT faculty FROM subjects ORDER BY 1")]
     return render_template("reports.html", summary=summary, records=records, f=f, students=students,
                            subjects=subjects, faculties=faculties)
 
@@ -148,10 +364,16 @@ def api_active():
 def api_start():
     db = get_db()
     close_expired(db)
+    user = session.get("user")
     tid = (request.get_json(silent=True) or {}).get("timetable_id")
     t = db.execute("SELECT * FROM timetable WHERE id=?", (tid,)).fetchone()
     if not t:
         return err("Invalid timetable entry.", 404)
+        
+    # Privacy enforcement: Faculty can only start attendance sessions for their own subjects
+    if user and user.get("role") == "faculty" and t["faculty"] != user["name"]:
+        return err(f"Privacy Policy: You can only start attendance sessions for your own assigned subjects ({t['faculty']} is assigned to this slot).", 403)
+
     now = datetime.now()
     if not config.DEMO_MODE:  # real mode: class must be running now
         if t["day"] != now.strftime("%A") or not (t["start_time"] <= now.strftime("%H:%M") < t["end_time"]):
@@ -172,9 +394,13 @@ def api_start():
 @app.post("/api/sessions/<int:sid>/stop")
 def api_stop(sid):
     db = get_db()
-    s = db.execute("SELECT status FROM attendance_sessions WHERE id=?", (sid,)).fetchone()
+    user = session.get("user")
+    s = db.execute("""SELECT s.status, t.faculty FROM attendance_sessions s
+                      JOIN timetable t ON t.id=s.timetable_id WHERE s.id=?""", (sid,)).fetchone()
     if not s:
         return err("Session not found.", 404)
+    if user and user.get("role") == "faculty" and s["faculty"] != user["name"]:
+        return err("Privacy Policy: You can only stop your own attendance sessions.", 403)
     if s["status"] == "ACTIVE":
         finalize_session(db, sid)
     return jsonify(success=True, message="Attendance session stopped.")
@@ -271,9 +497,12 @@ def api_add_student():
         return err("Student ID, name and roll number are required.")
     try:
         db = get_db()
-        db.execute("INSERT INTO students(student_id,name,roll_number,email,course,semester) VALUES(?,?,?,?,?,?)",
-                   (d["student_id"].strip(), d["name"].strip(), d["roll_number"].strip(), d.get("email", ""),
-                    d.get("course", "CSE"), int(d.get("semester") or 7)))
+        name = d["name"].strip()
+        first_name = name.split()[0].lower()
+        pwd = f"{first_name}@2026"
+        db.execute("INSERT INTO students(student_id,name,roll_number,email,course,semester,password) VALUES(?,?,?,?,?,?,?)",
+                   (d["student_id"].strip(), name, d["roll_number"].strip(), d.get("email", ""),
+                    d.get("course", "CSE"), int(d.get("semester") or 7), pwd))
         db.commit()
     except sqlite3.IntegrityError:
         return err("Student ID or roll number already exists.", 409)
@@ -301,8 +530,27 @@ def api_register_face(sid):
         return err(f"This face is already registered to {other}.", 409)
     db.execute("UPDATE students SET face_encoding=? WHERE id=?", (json.dumps(enc.tolist()), sid))
     db.commit()
+    os.makedirs(config.DATASET_DIR, exist_ok=True)
     cv2.imwrite(os.path.join(config.DATASET_DIR, f"{st['student_id']}.jpg"), bgr)
     return jsonify(success=True, message=f"Face registered for {st['name']}.")
+
+
+@app.delete("/api/students/<int:sid>/face")
+@app.post("/api/students/<int:sid>/face/delete")
+def api_remove_face(sid):
+    db = get_db()
+    st = db.execute("SELECT * FROM students WHERE id=?", (sid,)).fetchone()
+    if not st:
+        return err("Student not found.", 404)
+    db.execute("UPDATE students SET face_encoding=NULL WHERE id=?", (sid,))
+    db.commit()
+    img_path = os.path.join(config.DATASET_DIR, f"{st['student_id']}.jpg")
+    if os.path.exists(img_path):
+        try:
+            os.remove(img_path)
+        except OSError:
+            pass
+    return jsonify(success=True, message=f"Face registration canceled/removed for {st['name']}.")
 
 
 # ------------------------------------------------------------ timetable API
@@ -360,4 +608,13 @@ def server_error(_):
 init_db.init()
 
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    print("\n------------------------------------------------------------")
+    print("Starting Smart Attendance Portal...")
+    print("Access via Localhost:  https://127.0.0.1:5000 or http://127.0.0.1:5000")
+    print("Access via Network IP: https://<YOUR_IP>:5000 (HTTPS required for camera)")
+    print("------------------------------------------------------------\n")
+    try:
+        app.run(debug=True, host="0.0.0.0", port=5000, ssl_context="adhoc")
+    except Exception as ex:
+        print("Note: Starting standard HTTP server (Camera requires HTTPS on external IPs):", ex)
+        app.run(debug=True, host="0.0.0.0", port=5000)

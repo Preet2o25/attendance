@@ -4,27 +4,48 @@
 <div><label>Student ID</label><input id="sid"></div><div><label>Name</label><input id="nm"></div><div><label>Roll no.</label><input id="rl"></div>
 <div><label>Email</label><input id="em"></div><div><label>Course</label><input id="co" value="CSE" size="6"></div><div><label>Sem</label><input id="se" value="7" size="3"></div>
 <button onclick="addS()">Add</button></div></div>
-<div class="two"><div class="card"><table><tr><th>ID</th><th>Name</th><th>Roll</th><th>Face</th><th></th></tr>
+<div class="two"><div class="card"><table><tr><th>ID</th><th>Name</th><th>Roll</th><th>Face</th><th>Actions</th></tr>
 {% for s in students %}<tr><td>{{ s.student_id }}</td><td>{{ s.name }}</td><td>{{ s.roll_number }}</td>
 <td>{% if s.face_encoding %}<span class="badge ok">Registered</span>{% else %}<span class="badge bad">Not registered</span>{% endif %}</td>
-<td><button type="button" data-id="{{ s.id }}" data-name="{{ s.name }}" onclick="pick(this)">Register face</button></td></tr>{% endfor %}</table></div>
+<td>
+  <button type="button" data-id="{{ s.id }}" data-name="{{ s.name }}" onclick="pick(this)">Register face</button>
+  {% if s.face_encoding %}
+    <button type="button" class="red" onclick="delFace({{ s.id }}, '{{ s.name }}')">Remove face</button>
+  {% endif %}
+</td></tr>{% endfor %}</table></div>
 <div class="card"><h3>Capture face: <span id="who">select a student</span></h3><video id="video" autoplay playsinline muted></video><br><br>
-<button id="cap" onclick="reg(false)" disabled>Capture & Register</button> <button class="red" onclick="reg(true)" id="rep" disabled>Replace existing</button>
+<button id="cap" onclick="reg(false)" disabled>Capture & Register</button>
+<button class="red" onclick="reg(true)" id="rep" disabled>Replace existing</button>
+<button class="red" onclick="cancelFace()" id="delBtn" disabled>Remove face</button>
 <div class="msg" id="msg"></div></div></div>
 {% endblock %}{% block scripts %}<script src="/static/js/camera.js"></script><script>
-let sel=null,stream=null;const $=i=>document.getElementById(i);
+let sel=null,selName='',stream=null;const $=i=>document.getElementById(i);
 function show(t,ok){const m=$('msg');m.textContent=t;m.className='msg '+(ok?'ok':'bad');m.style.display='block'}
 function pick(btn){
   sel = Number(btn.dataset.id);
-  $('who').textContent = btn.dataset.name || 'Unknown student';
+  selName = btn.dataset.name || 'Unknown student';
+  $('who').textContent = selName;
   $('msg').style.display = 'none';
-  try{if(!stream)stream = startCamera($('video')); $('cap').disabled=false; $('rep').disabled=false;}catch(e){show(e,false)}
+  try{if(!stream)stream = startCamera($('video')); $('cap').disabled=false; $('rep').disabled=false; $('delBtn').disabled=false;}catch(e){show(e,false)}
 }
 async function reg(rep){
   if(!sel){show('Please select a student first.',false); return;}
   const r=await api('/api/students/'+sel+'/face','POST',{image:captureFrame($('video')),replace:rep});
   show(r.message,r.success);
-  if(r.success)setTimeout(()=>location.reload(),12000)
+  if(r.success)setTimeout(()=>location.reload(),1200)
+}
+async function delFace(id, name){
+  if(!confirm(`Are you sure you want to remove the registered face for ${name}?`)) return;
+  const r = await api('/api/students/' + id + '/face', 'DELETE');
+  alert(r.message);
+  if(r.success) location.reload();
+}
+async function cancelFace(){
+  if(!sel){show('Please select a student first.',false); return;}
+  if(!confirm(`Remove the registered face for ${selName}?`)) return;
+  const r = await api('/api/students/' + sel + '/face', 'DELETE');
+  show(r.message, r.success);
+  if(r.success) setTimeout(()=>location.reload(),1200);
 }
 async function addS(){const g=i=>$(i).value;const r=await api('/api/students','POST',{student_id:g('sid'),name:g('nm'),roll_number:g('rl'),email:g('em'),course:g('co'),semester:g('se')});alert(r.message);if(r.success)location.reload()}
 </script>{% endblock %}

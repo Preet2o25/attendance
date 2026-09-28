@@ -1,0 +1,142 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Login - Smart Attendance Portal</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    body { background: #eef2ff; display: flex; flex-direction: column; min-height: 100vh; }
+    .login-container { max-width: 440px; margin: 40px auto; width: 100%; padding: 0 16px; }
+    .login-card { background: #fff; border-radius: 12px; padding: 28px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+    .login-header { text-align: center; margin-bottom: 22px; }
+    .login-header h2 { margin: 0 0 6px 0; color: #1e3a8a; }
+    .login-header p { margin: 0; color: #64748b; font-size: 14px; }
+    .role-tabs { display: flex; gap: 8px; margin-bottom: 20px; background: #f1f5f9; padding: 4px; border-radius: 8px; }
+    .role-tab { flex: 1; text-align: center; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; color: #475569; transition: all 0.2s; }
+    .role-tab.active { background: #1e3a8a; color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 6px; font-weight: 600; color: #334155; font-size: 13px; }
+    .form-group input { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; }
+    .btn-login { width: 100%; padding: 12px; background: #1e3a8a; color: #fff; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+    .btn-login:hover { background: #1d4ed8; }
+    .creds-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-top: 20px; font-size: 12px; color: #334155; }
+    .creds-box summary { font-weight: 700; cursor: pointer; color: #1e3a8a; }
+    .creds-table { width: 100%; margin-top: 8px; font-size: 12px; border-collapse: collapse; }
+    .creds-table th, .creds-table td { padding: 4px 6px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+    .security-notice { font-size: 11px; color: #64748b; text-align: center; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <h2>Smart Attendance Portal</h2>
+        <p>Sign in to access your portal</p>
+      </div>
+
+      <div class="role-tabs">
+        <div class="role-tab active" id="tabStudent" onclick="switchRole('student')">Student Login</div>
+        <div class="role-tab" id="tabFaculty" onclick="switchRole('faculty')">Faculty Login</div>
+      </div>
+
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <input type="hidden" id="role" name="role" value="student">
+        
+        <div class="form-group">
+          <label id="userLabel">Student ID / Roll No / Email / Name</label>
+          <input type="text" id="username" placeholder="e.g. STU001 or CSE001 or Aarav" required>
+        </div>
+
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="password" placeholder="Enter password (e.g. name@2026)" required>
+        </div>
+
+        <div class="msg" id="loginMsg"></div>
+
+        <button type="submit" class="btn-login" id="btnLogin">Login as Student</button>
+      </form>
+
+      <details class="creds-box">
+        <summary>Click to view system login credentials</summary>
+        <p style="margin: 6px 0 4px 0;"><b>Faculty Accounts:</b></p>
+        <table class="creds-table">
+          <tr><th>ID / Email</th><th>Name</th><th>Password</th></tr>
+          <tr><td>FAC001</td><td>Dr. Mehta</td><td><code>mehta@2026</code></td></tr>
+          <tr><td>FAC002</td><td>Prof. Shah</td><td><code>shah@2026</code></td></tr>
+          <tr><td>FAC003</td><td>Prof. Patel</td><td><code>patel@2026</code></td></tr>
+        </table>
+        <p style="margin: 10px 0 4px 0;"><b>Student Accounts:</b></p>
+        <table class="creds-table">
+          <tr><th>ID / Roll</th><th>Name</th><th>Password</th></tr>
+          <tr><td>STU001 / CSE001</td><td>Preet</td><td><code>preet@2026</code></td></tr>
+          <tr><td>STU002 / CSE002</td><td>Chitransh</td><td><code>chitransh@2026</code></td></tr>
+          <tr><td>STU003 / CSE003</td><td>Mitesh</td><td><code>mitesh@2026</code></td></tr>
+        </table>
+      </details>
+
+      <div class="security-notice">
+        Registration disabled. Accounts must be provisioned by institution administrator.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function switchRole(role) {
+      document.getElementById('role').value = role;
+      const tabStudent = document.getElementById('tabStudent');
+      const tabFaculty = document.getElementById('tabFaculty');
+      const userLabel = document.getElementById('userLabel');
+      const btnLogin = document.getElementById('btnLogin');
+      const usernameInput = document.getElementById('username');
+
+      if (role === 'faculty') {
+        tabFaculty.classList.add('active');
+        tabStudent.classList.remove('active');
+        userLabel.textContent = 'Faculty ID / Email / Name';
+        usernameInput.placeholder = 'e.g. FAC001 or Dr. Mehta or mehta@example.com';
+        btnLogin.textContent = 'Login as Faculty';
+      } else {
+        tabStudent.classList.add('active');
+        tabFaculty.classList.remove('active');
+        userLabel.textContent = 'Student ID / Roll No / Email / Name';
+        usernameInput.placeholder = 'e.g. STU001 or CSE001 or Aarav';
+        btnLogin.textContent = 'Login as Student';
+      }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const role = document.getElementById('role').value;
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const msg = document.getElementById('loginMsg');
+      msg.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role, username, password })
+        });
+        const r = await res.json();
+        if (r.success) {
+          msg.className = 'msg ok';
+          msg.textContent = r.message || 'Login successful! Redirecting...';
+          msg.style.display = 'block';
+          setTimeout(() => { window.location.href = r.redirect || '/'; }, 600);
+        } else {
+          msg.className = 'msg bad';
+          msg.textContent = r.message || 'Invalid credentials.';
+          msg.style.display = 'block';
+        }
+      } catch (err) {
+        msg.className = 'msg bad';
+        msg.textContent = 'Network error. Please try again.';
+        msg.style.display = 'block';
+      }
+    }
+  </script>
+</body>
+</html>

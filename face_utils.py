@@ -14,13 +14,13 @@ def _fr():
     try:
         import face_recognition
         return face_recognition
-    except ImportError:
-        raise FaceError("The 'face_recognition' library is not installed on the server.", "server_error")
+    except (ImportError, Exception, SystemExit) as e:
+        raise FaceError(f"The 'face_recognition' library is not available or failed to load: {e}", "server_error")
 
 
 def decode_image(data_url):
     if not data_url:
-        raise FaceError("No image received.", "bad_image")
+        raise FaceError("No image received. Make sure camera is active.", "bad_image")
     try:
         b64 = data_url.split(",", 1)[1] if "," in data_url else data_url
         arr = np.frombuffer(base64.b64decode(b64), np.uint8)
@@ -36,12 +36,23 @@ def encode_single_face(data_url):
     """Detect exactly one face and return (encoding, bgr_image)."""
     fr = _fr()
     rgb, bgr = decode_image(data_url)
-    locs = fr.face_locations(rgb)
+    try:
+        locs = fr.face_locations(rgb)
+    except Exception as e:
+        raise FaceError(f"Face detection failed: {str(e)}", "server_error")
     if len(locs) == 0:
         raise FaceError("Face not detected. Face the camera in good lighting.", "no_face")
     if len(locs) > 1:
         raise FaceError("Please ensure that only one person is visible.", "multiple_faces")
-    return fr.face_encodings(rgb, locs)[0], bgr
+    try:
+        encodings = fr.face_encodings(rgb, locs)
+        if not encodings:
+            raise FaceError("Could not extract face features. Please try again.", "no_face")
+        return encodings[0], bgr
+    except FaceError:
+        raise
+    except Exception as e:
+        raise FaceError(f"Face encoding failed: {str(e)}", "server_error")
 
 
 def best_match(encoding, known):
@@ -49,8 +60,14 @@ def best_match(encoding, known):
     if not known:
         return None
     fr = _fr()
-    dists = fr.face_distance(np.array([k[1] for k in known]), encoding)
-    i = int(np.argmin(dists))
-    if dists[i] <= config.FACE_TOLERANCE:
-        return known[i][0], float(dists[i])
+    try:
+        known_encs = [k[1] for k in known]
+        dists = fr.face_distance(known_encs, encoding)
+        if len(dists) == 0:
+            return None
+        i = int(np.argmin(dists))
+        if dists[i] <= config.FACE_TOLERANCE:
+            return known[i][0], float(dists[i])
+    except Exception:
+        return None
     return None

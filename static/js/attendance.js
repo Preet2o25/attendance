@@ -20,7 +20,7 @@ function setCur(s){
   $('timer').textContent=fmt(left);
   checkLocation();
 }
-$('sessSel').onchange=e=>setCur(sessions.find(s=>s.id==e.target.value));
+if($('sessSel')) $('sessSel').onchange=e=>setCur(sessions.find(s=>s.id==e.target.value));
 
 async function checkLocation(){
   if(!cur)return;
@@ -30,7 +30,7 @@ async function checkLocation(){
   catch(e){badge('lStat','Rejected','bad');$('lLoc').textContent='Unavailable';show(e,false);return}
   const r=await api('/api/location/check','POST',{session_id:cur.id,...(pos||{})});
   if(!r.success){badge('lStat','Rejected','bad');show(r.message,false);return}
-  $('lLoc').textContent=r.latitude.toFixed(5)+', '+r.longitude.toFixed(5)+(cfg.demo_mode?' (demo)':'');
+  $('lLoc').textContent=r.latitude.toFixed(5)+', '+r.longitude.toFixed(5);
   $('lDist').textContent=r.distance_calculated+' m';
   $('rLoc').textContent=r.location_verified?'YES':'NO';
   if(!r.location_verified){badge('lStat','Rejected','bad');show(r.message,false);return}
